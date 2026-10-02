@@ -865,6 +865,126 @@ fn draw_container_biased(
     }
 }
 
+// ─── 纯 Rust PNG 编码（零依赖，deflate + CRC32 手算）─────────────────
+
+fn crc32(data: &[u8]) -> u32 {
+    let mut crc: u32 = 0xFFFF_FFFF;
+    for &b in data {
+        crc ^= b as u32;
+        for _ in 0..8 {
+            if crc & 1 != 0 { crc = 0xEDB8_8320 ^ (crc >> 1); }
+            else { crc >>= 1; }
+        }
+    }
+    crc ^ 0xFFFF_FFFF
+}
+
+fn adler32(data: &[u8]) -> u32 {
+    let mut a: u32 = 1;
+    let mut b: u32 = 0;
+    let m = 65_521u32;
+    for &byte in data {
+        a = (a + byte as u32) % m;
+        b = (b + a) % m;
+    }
+    (b << 16) | a
+}
+
+// PNG zrle：每行加 0x00 filter tag，然后 zlib Header + Adler32 校验
+// 这是一个"存货式" zrl 编码：直接把所有行数据拼起来不做真正的 LZ77 压缩，
+// 用 "stored blocks" (BTYPE=00) 输出未压缩内容，PNG 标准允许这种做法。
+fn write_png_canvas(c: &Cv, out: &str) {
+    let w = c.w as u32;
+    let h = c.h as u32;
+    let raw_row_size = 1 + w * 3u32; // filter tag + RGB
+    let raw_total = raw_row_size * h;
+
+    // 拼 raw RGB（每行前补 0x00 = no filter）
+    let mut raw: Vec<u8> = Vec::with_capacity(raw_total as usize);
+    for y in (0..h as i32).rev() {
+        raw.push(0x00); // filter: None
+        for x in 0..c.w {
+            let px = c.d[(y as usize) * (c.w as usize) + (x as usize)];
+            raw.push((px & 0xFF) as u8);         // R
+            raw.push(((px >> 8) & 0xFF) as u8);  // G
+            raw.push(((px >> 16) & 0xFF) as u8); // B
+        }
+    }
+
+    // ── zlib stream ──
+    let mut zlib: Vec<u8> = Vec::new();
+    zlib.push(0x78); // CMF
+    zlib.push(0x01); // FLG (no dict, no compression)
+
+    // stored blocks (BTYPE=00 = no compression)
+    // 每个 block：1 byte header (final=1 if last, BTYPE=00) + LEN(2) + NLEN(2) + data
+    const MAX_BLOCK: u16 = 65_535;
+    let mut offset = 0;
+    while offset < raw.len() {
+        let remain = raw.len() - offset;
+        let blen: usize = if remain > MAX_BLOCK as usize { MAX_BLOCK as usize } else { remain };
+        let is_last = (offset + blen) >= raw.len();
+        zlib.push(if is_last { 0x01 } else { 0x00 }); // final=1 + BTYPE=00
+        zlib.push((blen & 0xFF) as u8);
+        zlib.push(((blen >> 8) & 0xFF) as u8);
+        let nlen = !blen as u16;
+        zlib.push((nlen & 0xFF) as u8);
+        zlib.push(((nlen >> 8) & 0xFF) as u8);
+        zlib.extend_from_slice(&raw[offset..offset + blen]);
+        if is_last { break; } // 防止刚刚好的边界再开空 block
+        offset += blen;
+    }
+
+    let adler = adler32(&raw);
+    zlib.extend_from_slice(&adler.to_be_bytes());
+
+    // ── PNG chunks ──
+    let mut png: Vec<u8> = Vec::new();
+    // PNG signature
+    png.extend_from_slice(&[137u8, 80, 78, 71, 13, 10, 26, 10]);
+
+    // IHDR
+    let mut ihdr: Vec<u8> = Vec::with_capacity(13);
+    ihdr.extend_from_slice(&w.to_be_bytes());
+    ihdr.extend_from_slice(&h.to_be_bytes());
+    ihdr.push(8);   // bit depth
+    ihdr.push(2);   // color type: RGB
+    ihdr.push(0);   // compression
+    ihdr.push(0);   // filter
+    ihdr.push(0);   // interlace
+    let mut ihdr_full: Vec<u8> = Vec::new();
+    ihdr_full.extend_from_slice(&(ihdr.len() as u32 - 0).to_be_bytes());
+    // 修正：长度不含 type 和 CRC 自身
+    let ihdr_chunk_len: u32 = 13;
+    let mut ihdr_full: Vec<u8> = Vec::new();
+    ihdr_full.extend_from_slice(&ihdr_chunk_len.to_be_bytes());
+    ihdr_full.extend_from_slice(b"IHDR");
+    ihdr_full.extend_from_slice(&ihdr);
+    let crc = crc32(&ihdr_full[4..]); // CRC over type + data
+    ihdr_full.extend_from_slice(&crc.to_be_bytes());
+    png.extend_from_slice(&ihdr_full);
+
+    // IDAT
+    let mut idat_crc_data: Vec<u8> = Vec::new();
+    idat_crc_data.extend_from_slice(b"IDAT");
+    idat_crc_data.extend_from_slice(&zlib);
+    let mut idat_full: Vec<u8> = Vec::new();
+    idat_full.extend_from_slice(&(zlib.len() as u32).to_be_bytes());
+    idat_full.extend_from_slice(&idat_crc_data);
+    let crc = crc32(&idat_crc_data);
+    idat_full.extend_from_slice(&crc.to_be_bytes());
+    png.extend_from_slice(&idat_full);
+
+    // IEND
+    let iend_type = b"IEND";
+    let crc_iend = crc32(iend_type);
+    png.extend_from_slice(&0u32.to_be_bytes()); // length = 0
+    png.extend_from_slice(iend_type);
+    png.extend_from_slice(&crc_iend.to_be_bytes());
+
+    std::fs::write(out, &png).ok();
+}
+
 fn write_bmp_canvas(c: &Cv, out: &str) {
     let w = c.w as usize;
     let h = c.h as usize;
@@ -978,6 +1098,9 @@ fn draw_row(sid: u32, out: &str) {
     }
 
     write_bmp_canvas(&cv, out);
+    // 同名 PNG（直接可被妙手预览）
+    let png_path = out.replace(".bmp", ".png");
+    write_png_canvas(&cv, &png_path);
     let non_bg = cv.d.iter().filter(|&&c| c != BG).count();
     println!("行视图 声母#{}({}) {}音节 画布:{}x{} 像素:{}({:.1}%) → {}",
              sid, ['b','p','m','f','d','t','n','l','g','k','h','w',
@@ -985,7 +1108,7 @@ fn draw_row(sid: u32, out: &str) {
                    'B','P','M','F','D','T','N','L','G','K','H','W',
                    'J','Q','X','Y','Z','C','S','R','Ȥ','Ç','Ş','Ņ'][sid as usize],
              drawn, canvas_w, canvas_h,
-             non_bg, non_bg as f64 / (canvas_w * canvas_h) as f64 * 100.0, out);
+             non_bg, non_bg as f64 / (canvas_w * canvas_h) as f64 * 100.0, png_path);
 }
 
 fn main() {
@@ -1056,12 +1179,14 @@ fn main() {
         let m = 40i32;
         draw_container_mono(&mut cv, m, m, big_w - 2*m, big_h - 2*m, s, yy, t, mx, my, fg);
 
-        let out = format!("/mnt/data/catpaw/home/workspace/硅碳心源-果套循因/toolchain/tier1/mqf_glyph_one_s{}_y{}_t{}.bmp", s, yy, t);
-        write_bmp_canvas(&cv, &out);
+        let out_bmp = format!("/mnt/data/catpaw/home/workspace/硅碳心源-果套循因/toolchain/tier1/mqf_glyph_one_s{}_y{}_t{}.bmp", s, yy, t);
+        write_bmp_canvas(&cv, &out_bmp);
+        let out_png = format!("/mnt/data/catpaw/home/workspace/硅碳心源-果套循因/toolchain/tier1/mqf_glyph_one_s{}_y{}_t{}.png", s, yy, t);
+        write_png_canvas(&cv, &out_png);
 
         let drawn = cv.d.iter().filter(|&&c| c != 16777215).count();
         println!("单音节: s={} y={} t={} mx={} my={} → {} 笔画像素:{} ({:.1}%)",
-                 s, yy, t, mx, my, out, drawn, drawn as f64 / (big_w * big_h) as f64 * 100.0);
+                 s, yy, t, mx, my, out_png, drawn, drawn as f64 / (big_w * big_h) as f64 * 100.0);
     } else if args.len() > 1 && args[1] == "row" {
         let sid: u32 = args.get(2).and_then(|x| x.parse().ok()).unwrap_or(0);
         let out = format!("/mnt/data/catpaw/home/workspace/硅碳心源-果套循因/toolchain/tier1/mqf_glyph_row_s{}.bmp", sid);
