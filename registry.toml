@@ -1,0 +1,43 @@
+# 满全法 · 住客注册清单
+# 版本：1.1  日期：2026-10-02
+
+[registry]
+id_start = 0
+entry_count = 0
+convention_count = 0
+
+# ═══════════════════════════════════════
+# 住客条目格式：[resident.地址.命名空间]
+# ═══════════════════════════════════════
+
+# ── 声母 ns=0 ──
+[resident.0.声母]
+id = 0
+addr = 0
+ns = "声母"
+color = { series = 0, col = 0, hue = 0.0, idx = 0, label = "暖", pinyin = "xī" }
+voice = { shengmu_id = 0, yunmu_id = 0, tone_id = 0, label = "b" }
+phase = { angle = 0.0, mirror_angle = 0.0 }
+numeral = { value = 0, addr = 0 }
+status = "已入住"
+version = 1
+convention = 0xFF
+next_expect = 0xFF
+
+# ── 韵母 ns=1 ──
+[resident.3.韵母]
+id = 1
+addr = 3
+ns = "韵母"
+color = { series = 0, col = 3, hue = 25.71, idx = 3, pinyin = "xǐ" }
+voice = { shengmu_id = 0, yunmu_id = 0, tone_id = 0, label = "a" }
+phase = { angle = 25.71, mirror_angle = 334.29 }
+numeral = { value = 1, addr = 3 }
+status = "已入住"
+version = 1
+convention = 0xFF
+next_expect = 0xFF
+
+# ═══════════════════════════════════════
+# 公约条目格式：[convention.序号.空间名]
+# ═══════════════════════════════════════

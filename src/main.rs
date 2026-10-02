@@ -4,7 +4,9 @@
 // 符号 = 几何形态，绝不出现 Latin 字母
 
 mod grid_notation;
+mod registry;
 use grid_notation::{Bias, decode};
+use registry::{Registry, ResidenceStatus, CollideResult};
 
 const W: i32 = 1920;
 const H: i32 = 1080;
