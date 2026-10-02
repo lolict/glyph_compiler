@@ -1,21 +1,10 @@
 // 满全法 · 住客注册清单
 // 特征编程核心：名称地址 = 完整统计范畴，遍历注册表 = 数出所有地址
 // 格式：地址在前，命名空间在后；四维身份 + 状态 + 履历 + 公约
-
-// ═══════════════════════════════════════════════════
-// 常量
-// ═══════════════════════════════════════════════════
-
-const SERIES_COUNT: u32 = 6;       // 六系
-const COL_COUNT: u32 = 7;          // 每系七列
-const COLOR_COUNT: u32 = 42;       // 6×7 = 42 色
-const SHENGMU_COUNT: u32 = 24;     // 24 声母
-const YUNMU_COUNT: u32 = 33;       // 33 韵母（29-33 之间）
-const TONE_COUNT: u32 = 60;        // 60 声调
-const MAX_RESIDENTS: usize = 256;   // 住客上限
-const MAX_HISTORY: usize = 16;      // 每条住客履历上限
-const MAX_CONVENTIONS: usize = 32;  // 公约条目上限
-const MAX_QUEUE: usize = 16;        // 公约排队列表上限
+//
+// 容量声明（声母数 / 韵母数 / 声调数 / 系 / 列）不由本文件定义。
+// 全数由 registry.toml [容量声明] 驱动，程序仅读取。
+// 程序不得擅自创造进制数量。
 
 // ═══════════════════════════════════════════════════
 // 住客状态
@@ -45,21 +34,21 @@ pub enum CollideResult {
 // ═══════════════════════════════════════════════════
 
 pub struct ColorCol {
-    series: u32,        // 色系 0-5
-    col: u32,           // 列位 0-6
-    hue: f64,           // 色相角 0°-360°
-    idx: u32,           // 42 色序号 0-41
+    series: u32,        // 色系（由容量声明的 series_count 派生）
+    col: u32,           // 列位（由容量声明的 col_count 派生）
+    hue: f64,           // 色相角（由色系列 + 列 派生，不设上限常量）
+    idx: u32,           // 色序号（= series × col_count + col）
 }
 
 struct VoiceCol {
-    shengmu_id: u32,    // 声母序号 0-23
-    yunmu_id: u32,      // 韵母序号 0-32
-    tone_id: u32,       // 声调序号 0-59
+    shengmu_id: u32,    // 声母序号（< 容量声明的 shengmu_cap）
+    yunmu_id: u32,      // 韵母序号（< 容量声明的 yunmu_cap）
+    tone_id: u32,       // 声调序号（< 容量声明的 tone_cap）
     label: u8,          // 声母拉丁代表字（有限存储）
 }
 
 struct PhaseCol {
-    angle: f64,         // 相位角 0°-351.43°
+    angle: f64,         // 相位角
     mirror_angle: f64,  // 镜像对称角（径向对称群）
 }
 
@@ -94,7 +83,7 @@ pub struct Resident {
     status: ResidenceStatus,        // 入住状态
     version: u32,                   // 版本号（碰撞后递增）
     history_count: u32,             // 当前履历条数
-    history: [CollideRecord; MAX_HISTORY],  // 履历数组
+    history: [CollideRecord; 16],   // 履历数组（16 = 缓冲上限，非住客进制）
     convention_id: u32,             // 引用公约 id（0xFF = 无）
     notes: u32,                     // 约束方案引用（地址指针）
     next_expect: u32,               // 预期下一次碰撞对手 id
@@ -108,9 +97,88 @@ pub struct Convention {
     id: u32,                        // 公约序号
     baseline: u32,                  // 公约基准值（固定）
     queue_count: u32,               // 排队者数量
-    queue: [u32; MAX_QUEUE],        // 排队者 id 列表
+    queue: [u32; 16],               // 排队者 id 列表（16 = 缓冲上限）
     ns: u8,                         // 所属命名空间
-    trigger_count: u32,              // 触发计数（≥3 时生成）
+    trigger_count: u32,             // 触发计数（≥3 时生成）
+}
+
+// ═══════════════════════════════════════════════════
+// 容量声明 — 由 registry.toml 载入，程序不自创
+// ═══════════════════════════════════════════════════
+
+pub struct Capacity {
+    pub shengmu_cap: u32,       // 声母基数（如 24）
+    pub yunmu_cap: u32,         // 韵母基数（如 29-33，由你定）
+    pub tone_cap: u32,          // 声调进制（如 60）
+    pub series_count: u32,      // 系（如 6）
+    pub col_count: u32,         // 每系列列数（如 7）
+    pub color_count: u32,       // 颜色总数 = series × col
+    pub max_residents: usize,   // 住客上限
+    pub max_conventions: usize, // 公约条目上限
+}
+
+impl Capacity {
+    // 默认值仅用于 toml 文件缺失字段时的兜底
+    // 优先从 registry.toml [容量声明] 读
+    fn default() -> Capacity {
+        Capacity {
+            shengmu_cap: 24,
+            yunmu_cap: 30,       // 韵母基数暂定 30，以 toml 为准
+            tone_cap: 60,
+            series_count: 6,
+            col_count: 7,
+            color_count: 42,     // series × col = 6 × 7
+            max_residents: 256,
+            max_conventions: 32,
+        }
+    }
+
+    // 极简 TOML 解析：只读 [容量声明] 段的 key = value 行
+    // 不引入 toml crate，纯字符串匹配
+    fn from_toml(path: &str) -> Capacity {
+        let mut cap = Capacity::default();
+        let data = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(_) => return cap,  // 文件不存在 → 用默认值
+        };
+        let lines: Vec<&str> = data.lines().collect();
+        let mut in_section = false;
+        for line in lines {
+            let trimmed = line.trim();
+            if trimmed == "[容量声明]" {
+                in_section = true;
+                continue;
+            }
+            if trimmed.starts_with('[') && trimmed.ends_with(']') {
+                in_section = false;
+                continue;
+            }
+            if !in_section { continue; }
+            // 跳过空行和注释
+            if trimmed.is_empty() || trimmed.starts_with('#') { continue; }
+            // key = value
+            if let Some(eq) = trimmed.find('=') {
+                let key = trimmed[..eq].trim();
+                let val = trimmed[eq+1..].trim();
+                // 去掉行内注释
+                let val = if let Some(p) = val.find('#') { val[..p].trim() } else { val };
+                let num: u32 = val.parse().unwrap_or(0);
+                if num == 0 { continue; }
+                match key {
+                    "声母基数" => cap.shengmu_cap = num,
+                    "韵母基数" => cap.yunmu_cap = num,
+                    "声调进制" => cap.tone_cap = num,
+                    "系" => cap.series_count = num,
+                    "每系列列数" => cap.col_count = num,
+                    "住客上限" => cap.max_residents = num as usize,
+                    "公约上限" => cap.max_conventions = num as usize,
+                    _ => {}
+                }
+            }
+        }
+        cap.color_count = cap.series_count * cap.col_count;
+        cap
+    }
 }
 
 // ═══════════════════════════════════════════════════
@@ -118,8 +186,9 @@ pub struct Convention {
 // ═══════════════════════════════════════════════════
 
 pub struct Registry {
-    residents: [Resident; MAX_RESIDENTS],       // 住客表
-    conventions: [Convention; MAX_CONVENTIONS], // 公约表
+    residents: Vec<Resident>,       // 住客表（Vec 不硬编码容量）
+    conventions: Vec<Convention>,   // 公约表
+    capacity: Capacity,             // 容量声明（来自 toml）
     count: u32,                     // 住客计数
     convention_count: u32,          // 公约计数
     next_id: u32,                   // 下一可用住客 id
@@ -138,11 +207,12 @@ pub struct Registry {
 // 四维计算 — 住客间距离
 // ═══════════════════════════════════════════════════
 
-// 颜色距离 = |a - b|，环状（42 色闭环）
-fn color_distance(a: u32, b: u32) -> u32 {
+// 颜色距离 = |a - b|，环状（color_count 闭环）
+fn color_distance(a: u32, b: u32, color_count: u32) -> u32 {
     let d = if a > b { a - b } else { b - a };
     // 闭环：从另一边绕更短取
-    if d > 21 { 42 - d } else { d }
+    let half = color_count / 2;
+    if d > half { color_count - d } else { d }
 }
 
 // 相位角度差（0-180 之间最小弧）
@@ -177,14 +247,16 @@ fn numeral_distance(a: u32, b: u32) -> u32 {
 }
 
 // ═══════════════════════════════════════════════════
-// 42 色色相角计算（从 color_quant.c 派生）
-// hue_angle = layer × 60° + col × 8.57°
+// 色相角计算（由容量声明的 series_count / col_count 派生）
+// hue_angle = series × (360 / series_count) + col × (360 / series_count / col_count)
 // ═══════════════════════════════════════════════════
 
-fn hue_angle(series: u32, col: u32) -> f64 {
+fn hue_angle(series: u32, col: u32, cap: &Capacity) -> f64 {
     let s = series as f64;
     let c = col as f64;
-    s * (360.0 / 6.0) + c * (360.0 / 6.0 / 7.0)
+    let sc = cap.series_count as f64;
+    let cc = cap.col_count as f64;
+    s * (360.0 / sc) + c * (360.0 / sc / cc)
 }
 
 // 镜像对称角：关于 180° 中心对称
@@ -197,33 +269,37 @@ fn mirror_hue(hue: f64) -> f64 {
 // ═══════════════════════════════════════════════════
 
 impl Registry {
-    fn new() -> Registry {
+    // ─── 空创建 ───
+    fn new(cap: Capacity) -> Registry {
         Registry {
-            residents: unsafe {
-                // 安全：Resident 全部字段都是 Copy + 有确定初值
-                std::mem::zeroed()
-            },
-            conventions: unsafe { std::mem::zeroed() },
+            residents: Vec::with_capacity(cap.max_residents),
+            conventions: Vec::with_capacity(cap.max_conventions),
+            capacity: cap,
             count: 0,
             convention_count: 0,
             next_id: 0,
         }
     }
 
+    // ─── 从 TOML 容量声明创建 ───
+    fn from_toml_file(path: &str) -> Registry {
+        let cap = Capacity::from_toml(path);
+        Registry::new(cap)
+    }
+
     // ─── 入住 ───
     fn register(&mut self, addr: u32, ns: u8,
                 color_idx: u32,
                 shengmu_id: u32, yunmu_id: u32, tone_id: u32) -> u32 {
-        if self.count as usize >= MAX_RESIDENTS { return 0xFFFFFFFF; }
+        if self.count as usize >= self.capacity.max_residents { return 0xFFFFFFFF; }
 
         let id = self.next_id;
-        let idx = self.count as usize;
 
-        let series = color_idx / COL_COUNT;
-        let col = color_idx % COL_COUNT;
-        let hue = hue_angle(series, col);
+        let series = color_idx / self.capacity.col_count;
+        let col = color_idx % self.capacity.col_count;
+        let hue = hue_angle(series, col, &self.capacity);
 
-        self.residents[idx] = Resident {
+        let resident = Resident {
             id: id,
             addr: addr,
             ns: ns,
@@ -237,7 +313,7 @@ impl Registry {
                 shengmu_id: shengmu_id,
                 yunmu_id: yunmu_id,
                 tone_id: tone_id,
-                label: 0,  // 由调用者填写
+                label: 0,
             },
             phase: PhaseCol {
                 angle: hue,
@@ -256,6 +332,7 @@ impl Registry {
             next_expect: 0xFF,
         };
 
+        self.residents.push(resident);
         self.count += 1;
         self.next_id += 1;
         id
@@ -280,40 +357,33 @@ impl Registry {
     }
 
     // ─── 碰撞判定（按优先级）───
-    // 返回：(结果, 住客A索引, 住客B索引)
     fn collide(&mut self, id_a: u32, id_b: u32) -> (CollideResult, usize, usize) {
         let ia = self.find(id_a);
         let ib = self.find(id_b);
         if ia == 0xFFFFFFFF as usize || ib == 0xFFFFFFFF as usize {
             return (CollideResult::Fracture, ia, ib);
         }
+        if ia >= self.residents.len() || ib >= self.residents.len() {
+            return (CollideResult::Fracture, ia, ib);
+        }
 
-        // 安全：两个不同索引
-        let (a, b) = if ia < ib {
-            let ptr = &mut self.residents as *mut [Resident; MAX_RESIDENTS];
-            unsafe {
-                let left = &mut (*ptr)[ia] as *mut Resident;
-                let right = &mut (*ptr)[ib] as *mut Resident;
-                (&mut *left, &mut *right)
-            }
-        } else {
-            let ptr = &mut self.residents as *mut [Resident; MAX_RESIDENTS];
-            unsafe {
-                let left = &mut (*ptr)[ia] as *mut Resident;
-                let right = &mut (*ptr)[ib] as *mut Resident;
-                (&mut *left, &mut *right)
-            }
-        };
+        let phase_dist = phase_distance(
+            self.residents[ia].phase.angle,
+            self.residents[ib].phase.angle
+        );
 
-        // 优先级一：镜像 — 角度差接近 180°
-        let phase_dist = phase_distance(a.phase.angle, b.phase.angle);
-        if (phase_dist - 180.0).abs() < 7.0 {  // 允许 ±7° 容差
+        // 优先级一：镜像
+        if (phase_dist - 180.0).abs() < 7.0 {
             return self.do_mirror(ia, ib);
         }
 
-        // 优先级二：合并 — 颜色距离 = 0 且声音距离 ≤ 阈值
-        let cd = color_distance(a.color.idx, b.color.idx);
-        let vd = voice_distance(&a.voice, &b.voice);
+        // 优先级二：合并
+        let cd = color_distance(
+            self.residents[ia].color.idx,
+            self.residents[ib].color.idx,
+            self.capacity.color_count
+        );
+        let vd = voice_distance(&self.residents[ia].voice, &self.residents[ib].voice);
         if cd == 0 && vd <= 12 {
             return self.do_merge(ia, ib);
         }
@@ -323,11 +393,9 @@ impl Registry {
     }
 
     fn do_mirror(&mut self, ia: usize, ib: usize) -> (CollideResult, usize, usize) {
-        // 镜像：B 成为 A 的一面，B 标记为 Mirror
         if ib < self.residents.len() {
             self.residents[ib].status = ResidenceStatus::Mirror;
         }
-        // A 记录履历
         let rec = CollideRecord {
             opponent: self.residents[ib].id,
             result: CollideResult::Mirror,
@@ -335,7 +403,7 @@ impl Registry {
             _pad: 0,
         };
         let hc = self.residents[ia].history_count as usize;
-        if hc < MAX_HISTORY {
+        if hc < 16 {
             self.residents[ia].history[hc] = rec;
             self.residents[ia].history_count += 1;
         }
@@ -344,18 +412,17 @@ impl Registry {
     }
 
     fn do_merge(&mut self, ia: usize, ib: usize) -> (CollideResult, usize, usize) {
-        // 合并：A 吸收 B 的属性叠加，B 断裂
         if ib < self.residents.len() {
             self.residents[ib].status = ResidenceStatus::Fracture;
         }
-        // A 的声音叠加取两者之和
+        // 声音叠加：对容量取模以防越界（shengmu_cap / yunmu_cap 由 toml 驱动）
         self.residents[ia].voice.shengmu_id =
-            (self.residents[ia].voice.shengmu_id + self.residents[ib].voice.shengmu_id) % SHENGMU_COUNT;
+            (self.residents[ia].voice.shengmu_id + self.residents[ib].voice.shengmu_id)
+            % self.capacity.shengmu_cap;
         self.residents[ia].voice.yunmu_id =
-            (self.residents[ia].voice.yunmu_id + self.residents[ib].voice.yunmu_id) % YUNMU_COUNT;
-        // 版本递增
+            (self.residents[ia].voice.yunmu_id + self.residents[ib].voice.yunmu_id)
+            % self.capacity.yunmu_cap;
         self.residents[ia].version += 1;
-        // 记录履历
         let rec = CollideRecord {
             opponent: self.residents[ib].id,
             result: CollideResult::Merge,
@@ -363,7 +430,7 @@ impl Registry {
             _pad: 0,
         };
         let hc = self.residents[ia].history_count as usize;
-        if hc < MAX_HISTORY {
+        if hc < 16 {
             self.residents[ia].history[hc] = rec;
             self.residents[ia].history_count += 1;
         }
@@ -371,15 +438,14 @@ impl Registry {
     }
 
     // ─── 公约检测 ───
-    // 同一命名空间下，同一颜色列出现 ≥3 次 → 生成公约
     fn check_convention(&mut self, ns: u8, color_col: u32) -> u32 {
-        let mut ids: [u32; MAX_QUEUE] = [0; MAX_QUEUE];
+        let mut ids: [u32; 16] = [0; 16];
         let mut cnt = 0u32;
 
         for i in 0..self.count as usize {
             if self.residents[i].ns == ns && self.residents[i].color.col == color_col
                 && self.residents[i].status == ResidenceStatus::Occupied {
-                if (cnt as usize) < MAX_QUEUE {
+                if (cnt as usize) < 16 {
                     ids[cnt as usize] = self.residents[i].id;
                 }
                 cnt += 1;
@@ -387,28 +453,27 @@ impl Registry {
         }
 
         if cnt < 3 { return 0xFFFFFFFF; }
+        if self.convention_count as usize >= self.capacity.max_conventions { return 0xFFFFFFFF; }
 
-        // 生成公约
-        if self.convention_count as usize >= MAX_CONVENTIONS { return 0xFFFFFFFF; }
         let cid = self.convention_count;
+        let qcnt = if cnt > 16 { 16 } else { cnt };
         let mut conv = Convention {
             id: cid,
-            baseline: color_col * 10,    // 基准值 = 列号 × 10
-            queue_count: if cnt > MAX_QUEUE as u32 { MAX_QUEUE as u32 } else { cnt },
-            queue: [0; MAX_QUEUE],
+            baseline: color_col * 10,
+            queue_count: qcnt,
+            queue: [0; 16],
             ns: ns,
             trigger_count: cnt,
         };
         for k in 0..conv.queue_count as usize {
             conv.queue[k] = ids[k];
-            // 住客回填公约 id
             let ri = self.find(ids[k]);
-            if ri < MAX_RESIDENTS {
+            if ri < self.residents.len() {
                 self.residents[ri].convention_id = cid;
             }
         }
 
-        self.conventions[self.convention_count as usize] = conv;
+        self.conventions.push(conv);
         self.convention_count += 1;
         cid
     }
@@ -438,7 +503,6 @@ impl Registry {
         n
     }
 
-    // 升维检查：格子住客 ≥ 4 时需要扩容
     fn check_ascension(&self, addr: u32) -> bool {
         let mut n = 0;
         for i in 0..self.count as usize {
@@ -461,14 +525,15 @@ mod tests {
 
     #[test]
     fn test_hue_angle() {
+        let cap = Capacity::default();
         // 红系第0列 = 0°
-        assert!((hue_angle(0, 0) - 0.0).abs() < 0.01);
-        // 红系第1列 = 8.57°
-        assert!((hue_angle(0, 1) - 8.57).abs() < 0.1);
+        assert!((hue_angle(0, 0, &cap) - 0.0).abs() < 0.01);
+        // 红系第1列 ≈ 8.57°
+        assert!((hue_angle(0, 1, &cap) - 8.57).abs() < 0.1);
         // 黄系第0列 = 60°
-        assert!((hue_angle(1, 0) - 60.0).abs() < 0.01);
-        // 光系最后一列 = 351.43°
-        assert!((hue_angle(5, 6) - 351.43).abs() < 0.1);
+        assert!((hue_angle(1, 0, &cap) - 60.0).abs() < 0.01);
+        // 最后一列 ≈ 351.43°
+        assert!((hue_angle(cap.series_count - 1, cap.col_count - 1, &cap) - 351.43).abs() < 0.1);
     }
 
     #[test]
@@ -481,15 +546,17 @@ mod tests {
 
     #[test]
     fn test_color_distance() {
-        assert_eq!(color_distance(0, 1), 1);
-        assert_eq!(color_distance(0, 41), 1); // 闭环
-        assert_eq!(color_distance(0, 21), 21); // 对半
-        assert_eq!(color_distance(5, 10), 5);
+        let cc = 42;
+        assert_eq!(color_distance(0, 1, cc), 1);
+        assert_eq!(color_distance(0, 41, cc), 1); // 闭环
+        assert_eq!(color_distance(0, 21, cc), 21); // 对半
+        assert_eq!(color_distance(5, 10, cc), 5);
     }
 
     #[test]
     fn test_register() {
-        let mut reg = Registry::new();
+        let cap = Capacity::default();
+        let mut reg = Registry::new(cap);
         let id0 = reg.register(0, 0, 0, 0, 0, 0);
         assert_eq!(id0, 0);
         assert_eq!(reg.count, 1);
@@ -501,10 +568,10 @@ mod tests {
 
     #[test]
     fn test_collide_mirror() {
-        let mut reg = Registry::new();
-        // 两个住客相位差 = 180°（镜像对）
-        reg.register(0, 0, 0, 0, 0, 0);   // hue=0°， idx=0
-        reg.register(21, 0, 21, 2, 2, 2);  // hue=180°， idx=21
+        let cap = Capacity::default();
+        let mut reg = Registry::new(cap);
+        reg.register(0, 0, 0, 0, 0, 0);   // hue=0°
+        reg.register(21, 0, 21, 2, 2, 2);  // hue≈180°
 
         let (result, _, _) = reg.collide(0, 1);
         match result {
@@ -515,9 +582,10 @@ mod tests {
 
     #[test]
     fn test_collide_merge() {
-        let mut reg = Registry::new();
-        reg.register(0, 0, 0, 0, 0, 30);  // idx=0 红L0
-        reg.register(0, 0, 0, 1, 5, 35);  // idx=0 红L0（同色不同音）
+        let cap = Capacity::default();
+        let mut reg = Registry::new(cap);
+        reg.register(0, 0, 0, 0, 0, 30);
+        reg.register(0, 0, 0, 1, 5, 35);
 
         let (result, _, _) = reg.collide(0, 1);
         match result {
@@ -528,9 +596,10 @@ mod tests {
 
     #[test]
     fn test_collide_fracture() {
-        let mut reg = Registry::new();
-        reg.register(0, 0, 0, 0, 0, 0);   // idx=0
-        reg.register(10, 0, 10, 1, 10, 30); // idx=10，声音差大
+        let cap = Capacity::default();
+        let mut reg = Registry::new(cap);
+        reg.register(0, 0, 0, 0, 0, 0);
+        reg.register(10, 0, 10, 1, 10, 30);
 
         let (result, _, _) = reg.collide(0, 1);
         match result {
@@ -541,26 +610,39 @@ mod tests {
 
     #[test]
     fn test_convention_trigger() {
-        let mut reg = Registry::new();
-        // 同一命名空间(ns=0)，同一色(=0,color_col=0)，3个住客
-        reg.register(0, 0, 0, 0, 0, 0);   // col=0
-        reg.register(0, 0, 1, 0, 1, 0);   // col=0  (series=0,col=1)
-        // 注意：需要同一 col 列
-        reg.register(0, 0, 0, 0, 2, 0);   // addr=0同上
-        reg.register(6, 0, 6, 0, 3, 0);   // series=1,col=0 → 不同 col
+        let cap = Capacity::default();
+        let mut reg = Registry::new(cap);
+        // 同一命名空间(ns=0)，同一 col=0 的三个住客：
+        // idx=0:  col=0,  idx=7:  col=0,  idx=14: col=0
+        reg.register(0, 0, 0, 0, 0, 0);
+        reg.register(7, 0, 7, 1, 1, 0);
+        reg.register(14, 0, 14, 2, 2, 0);
 
-        // 修正：颜色 idx=0 和 idx=6 的 col 不同（0 vs 0），series 不同
-        // 触发同一 col=0 的公约: idx=0, idx=6
-        // 需要第3个 col=0: idx=12 → col=0 (series=2,col=0=12%7? no, 12//7=1,12%7=5)
-        // 42色 ÷ 7列 → col = idx % 7
-        // col=0 的 idx: 0, 7, 14, 21, 28, 35
-        let mut reg2 = Registry::new();
-        reg2.register(0, 0, 0, 0, 0, 0);   // idx=0, col=0
-        reg2.register(7, 0, 7, 1, 1, 0);    // idx=7, col=0
-        reg2.register(14, 0, 14, 2, 2, 0);  // idx=14, col=0
-
-        let cid = reg2.check_convention(0, 0);
+        let cid = reg.check_convention(0, 0);
         assert_ne!(cid, 0xFFFFFFFF);
-        assert_eq!(reg2.convention_count, 1);
+        assert_eq!(reg.convention_count, 1);
+    }
+
+    #[test]
+    fn test_capacity_from_toml() {
+        // 写入临时 toml 文件，验证 parser 读取
+        let tmp = "/tmp/test_registry_capacity.toml";
+        std::fs::write(tmp, r#"
+# 测试用容量声明
+[容量声明]
+声母基数 = 24
+韵母基数 = 30
+声调进制 = 60
+系 = 6
+每系列列数 = 7
+"#).unwrap();
+
+        let cap = Capacity::from_toml(tmp);
+        assert_eq!(cap.shengmu_cap, 24);
+        assert_eq!(cap.yunmu_cap, 30);
+        assert_eq!(cap.tone_cap, 60);
+        assert_eq!(cap.series_count, 6);
+        assert_eq!(cap.col_count, 7);
+        assert_eq!(cap.color_count, 42); // = series × col，自动计算
     }
 }
