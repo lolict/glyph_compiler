@@ -135,7 +135,7 @@ impl Capacity {
 
     // 极简 TOML 解析：只读 [容量声明] 段的 key = value 行
     // 不引入 toml crate，纯字符串匹配
-    fn from_toml(path: &str) -> Capacity {
+    pub fn from_toml(path: &str) -> Capacity {
         let mut cap = Capacity::default();
         let data = match std::fs::read_to_string(path) {
             Ok(s) => s,
@@ -182,6 +182,91 @@ impl Capacity {
 }
 
 // ═══════════════════════════════════════════════════
+// 韵母符号表 — 从 registry.toml [韵母符号表] 加载
+// 小写 = 声调符号池，大写 = 韵母符号池（大小写天然区分层）
+// ═══════════════════════════════════════════════════
+
+pub struct YunmuTable {
+    // index → Unicode符号字符串
+    pub symbols: Vec<String>,
+    // Unicode符号字符串 → index（反向查找）
+    lookup: std::collections::HashMap<String, u32>,
+}
+
+impl YunmuTable {
+    // 空表（默认）
+    fn empty() -> YunmuTable {
+        YunmuTable {
+            symbols: Vec::new(),
+            lookup: std::collections::HashMap::new(),
+        }
+    }
+
+    // 从 registry.toml 的 [韵母符号表.小写] + [韵母符号表.大写] 段加载
+    // 不引入 toml crate，纯字符串逐行解析 key = { cp = "..." }
+    fn from_toml(path: &str) -> YunmuTable {
+        let mut table = YunmuTable::empty();
+        let data = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(_) => return table,
+        };
+        let mut in_yunmu_section = false;
+        for line in data.lines() {
+            let t = line.trim();
+            if t == "[韵母符号表.小写]" || t == "[韵母符号表.大写]" {
+                in_yunmu_section = true;
+                continue;
+            }
+            if t.starts_with('[') && t.ends_with(']') {
+                in_yunmu_section = false;
+                continue;
+            }
+            if !in_yunmu_section { continue; }
+            if t.is_empty() || t.starts_with('#') { continue; }
+            // 解析 "ȧ = { ..."：取 = 左侧为符号
+            if let Some(eq_pos) = t.find('=') {
+                let symbol = t[..eq_pos].trim();
+                if symbol.is_empty() { continue; }
+                let idx = table.symbols.len() as u32;
+                table.symbols.push(symbol.to_string());
+                table.lookup.insert(symbol.to_string(), idx);
+            }
+        }
+        table
+    }
+
+    // 符号 → index，找不到返回 0xFFFFFFFF
+    pub fn symbol_to_index(&self, symbol: &str) -> u32 {
+        match self.lookup.get(symbol) {
+            Some(&idx) => idx,
+            None => 0xFFFFFFFF,
+        }
+    }
+
+    // index → 符号，越界返回空串
+    pub fn index_to_symbol(&self, idx: u32) -> &str {
+        if (idx as usize) < self.symbols.len() {
+            &self.symbols[idx as usize]
+        } else {
+            ""
+        }
+    }
+
+    // 符号总数 = 进制池容量
+    pub fn len(&self) -> u32 {
+        self.symbols.len() as u32
+    }
+
+    // 判断符号归属：大写开头 = 韵母池，小写开头 = 声调池
+    pub fn owner(&self, symbol: &str) -> &str {
+        if symbol.is_empty() { return ""; }
+        // 取首字符判断大小写
+        let first = symbol.chars().next().unwrap();
+        if first.is_uppercase() { "韵母" } else { "声调" }
+    }
+}
+
+// ═══════════════════════════════════════════════════
 // 注册清单
 // ═══════════════════════════════════════════════════
 
@@ -189,6 +274,7 @@ pub struct Registry {
     residents: Vec<Resident>,       // 住客表（Vec 不硬编码容量）
     conventions: Vec<Convention>,   // 公约表
     capacity: Capacity,             // 容量声明（来自 toml）
+    yunmu_table: YunmuTable,        // 韵母符号表（来自 toml）
     count: u32,                     // 住客计数
     convention_count: u32,          // 公约计数
     next_id: u32,                   // 下一可用住客 id
@@ -275,16 +361,28 @@ impl Registry {
             residents: Vec::with_capacity(cap.max_residents),
             conventions: Vec::with_capacity(cap.max_conventions),
             capacity: cap,
+            yunmu_table: YunmuTable::empty(),
             count: 0,
             convention_count: 0,
             next_id: 0,
         }
     }
 
-    // ─── 从 TOML 容量声明创建 ───
+    // ─── 从 TOML 容量声明 + 韵母符号表创建 ───
     fn from_toml_file(path: &str) -> Registry {
         let cap = Capacity::from_toml(path);
-        Registry::new(cap)
+        let mut reg = Registry::new(cap);
+        reg.yunmu_table = YunmuTable::from_toml(path);
+        reg
+    }
+
+    // ─── 通过符号入住（符号 → index → 分配）───
+    fn register_by_symbol(&mut self, addr: u32, ns: u8,
+                          color_idx: u32,
+                          shengmu_id: u32, yunmu_symbol: &str, tone_id: u32) -> u32 {
+        let yunmu_id = self.yunmu_table.symbol_to_index(yunmu_symbol);
+        if yunmu_id == 0xFFFFFFFF { return 0xFFFFFFFF; }
+        self.register(addr, ns, color_idx, shengmu_id, yunmu_id, tone_id)
     }
 
     // ─── 入住 ───
@@ -625,24 +723,96 @@ mod tests {
 
     #[test]
     fn test_capacity_from_toml() {
-        // 写入临时 toml 文件，验证 parser 读取
+        // 写入临时 toml 文件，验证 parser 读取（使用当前进制: 48/66/70）
         let tmp = "/tmp/test_registry_capacity.toml";
         std::fs::write(tmp, r#"
 # 测试用容量声明
 [容量声明]
-声母基数 = 24
-韵母基数 = 30
-声调进制 = 60
+声母基数 = 48
+韵母基数 = 66
+声调进制 = 70
 系 = 6
 每系列列数 = 7
 "#).unwrap();
 
         let cap = Capacity::from_toml(tmp);
-        assert_eq!(cap.shengmu_cap, 24);
-        assert_eq!(cap.yunmu_cap, 30);
-        assert_eq!(cap.tone_cap, 60);
+        assert_eq!(cap.shengmu_cap, 48);
+        assert_eq!(cap.yunmu_cap, 66);
+        assert_eq!(cap.tone_cap, 70);
         assert_eq!(cap.series_count, 6);
         assert_eq!(cap.col_count, 7);
         assert_eq!(cap.color_count, 42); // = series × col，自动计算
+    }
+
+    #[test]
+    fn test_yunmu_table_from_toml() {
+        // 创建带韵母符号表的测试 toml
+        let tmp = "/tmp/test_yunmu_table.toml";
+        std::fs::write(tmp, r#"
+[容量声明]
+声母基数 = 48
+韵母基数 = 66
+声调进制 = 70
+
+[韵母符号表.小写]
+ȧ = { base = "a", cp = "U+0227" }
+ė = { base = "e", cp = "U+0117" }
+ä = { base = "a", cp = "U+00E4" }
+
+[韵母符号表.大写]
+Ȧ = { base = "A", cp = "U+0226", owner = "韵母" }
+Ā = { base = "A", cp = "U+0100", owner = "韵母" }
+"#).unwrap();
+
+        let table = YunmuTable::from_toml(tmp);
+        // 总数 = 3小写 + 2大写 = 5
+        assert_eq!(table.len(), 5);
+
+        // 小写符号 index 0-2
+        assert_eq!(table.symbol_to_index("ȧ"), 0);
+        assert_eq!(table.symbol_to_index("ė"), 1);
+        assert_eq!(table.symbol_to_index("ä"), 2);
+
+        // 大写符号 index 3-4
+        assert_eq!(table.symbol_to_index("Ȧ"), 3);
+        assert_eq!(table.symbol_to_index("Ā"), 4);
+
+        // 不存在的符号
+        assert_eq!(table.symbol_to_index("不存在的"), 0xFFFFFFFF);
+
+        // 反向查 index → symbol
+        assert_eq!(table.index_to_symbol(0), "ȧ");
+        assert_eq!(table.index_to_symbol(3), "Ȧ");
+        assert_eq!(table.index_to_symbol(100), ""); // 越界
+
+        // owner 判断
+        assert_eq!(table.owner("ȧ"), "声调");   // 小写 → 声调
+        assert_eq!(table.owner("Ȧ"), "韵母");   // 大写 → 韵母
+    }
+
+    #[test]
+    fn test_register_by_symbol() {
+        let tmp = "/tmp/test_register_symbol.toml";
+        std::fs::write(tmp, r#"
+[容量声明]
+声母基数 = 48
+韵母基数 = 66
+声调进制 = 70
+
+[韵母符号表.大写]
+Ȧ = { base = "A", cp = "U+0226" }
+Ā = { base = "A", cp = "U+0100" }
+"#).unwrap();
+
+        let mut reg = Registry::from_toml_file(tmp);
+        // 通过大写符号 "Ȧ" 注册韵母
+        let id0 = reg.register_by_symbol(5, 1, 5, 10, "Ȧ", 20);
+        assert_ne!(id0, 0xFFFFFFFF);
+        assert_eq!(reg.count, 1);
+
+        // 不存在的符号 → 失败
+        let id_fail = reg.register_by_symbol(6, 1, 6, 10, "不存在的", 20);
+        assert_eq!(id_fail, 0xFFFFFFFF);
+        assert_eq!(reg.count, 1); // 未增加
     }
 }

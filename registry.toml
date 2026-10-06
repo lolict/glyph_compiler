@@ -1,27 +1,166 @@
 # 满全法 · 住客注册清单
-# 版本：1.1  日期：2026-10-02
+# 版本：1.2  日期：2026-10-06（更新进制：声母48/韵母66/声调70 = 130进制池）
 
 # ═══════════════════════════════════════
 # 容量声明 — 由你定，程序只读取不自创
 # ═══════════════════════════════════════
 [容量声明]
-声母基数 = 24        # 24 声母
-韵母基数 = 30        # 韵母在 29-33 之间权衡，当前暂定 30
-声调进制 = 60        # 60 声调
-系 = 6              # 六系
-每系列列数 = 7       # 每系七列
-住客上限 = 256       # 住客表缓冲上限（非住客进制）
-公约上限 = 32        # 公约条目缓冲上限
+声母基数 = 48           # 48声母
+韵母基数 = 66           # 66韵母
+声调进制 = 70           # 70声调（你定的）
+系 = 6                  # 六系
+每系列列数 = 7          # 每系七列
+住客上限 = 256          # 住客表缓冲上限（非住客进制）
+公约上限 = 32           # 公约条目缓冲上限
 
 # ═══════════════════════════════════════
-# 住客条目
+# 韵母Unicode符号表（130进制池）
+# 小写 = 声调解码符号（0-64）
+# 大写 = 韵母解码符号（0-64）
+# 非AEIOU = 补充符号（元音IPA扩展）
+# ═══════════════════════════════════════
+
+[韵母符号表.小写]  # 用于声调
+ȧ = { base = "a", diacritic = "dot_above", cp = "U+0227" }
+ė = { base = "e", diacritic = "dot_above", cp = "U+0117" }
+i̇ = { base = "i", diacritic = "dot_above", cp = "U+0130" }
+ȯ = { base = "o", diacritic = "dot_above", cp = "U+022F" }
+ů = { base = "u", diacritic = "dot_above", cp = "U+016F" }
+ä = { base = "a", diacritic = "umlaut", cp = "U+00E4" }
+ë = { base = "e", diacritic = "umlaut", cp = "U+00EB" }
+ï = { base = "i", diacritic = "umlaut", cp = "U+00EF" }
+ö = { base = "o", diacritic = "umlaut", cp = "U+00F6" }
+ü = { base = "u", diacritic = "umlaut", cp = "U+00FC" }
+ȃ = { base = "a", diacritic = "inverted_breve", cp = "U+0203" }
+ȇ = { base = "e", diacritic = "inverted_breve", cp = "U+0207" }
+ȋ = { base = "i", diacritic = "inverted_breve", cp = "U+020B" }
+ȏ = { base = "o", diacritic = "inverted_breve", cp = "U+020F" }
+ȗ = { base = "u", diacritic = "inverted_breve", cp = "U+0217" }
+a̋ = { base = "a", diacritic = "double_acute", cp = "U+011F" }
+e̋ = { base = "e", diacritic = "double_acute", cp = "" }
+ő = { base = "o", diacritic = "double_acute", cp = "U+0151" }
+ű = { base = "u", diacritic = "double_acute", cp = "U+0171" }
+ả = { base = "a", diacritic = "hook_above", cp = "U+0103" }
+ẻ = { base = "e", diacritic = "hook_above", cp = "U+011B" }
+ỉ = { base = "i", diacritic = "hook_above", cp = "U+0129" }
+ỏ = { base = "o", diacritic = "hook_above", cp = "U+014F" }
+ủ = { base = "u", diacritic = "hook_above", cp = "U+0169" }
+ą = { base = "a", diacritic = "ogonek", cp = "U+0105" }
+ę = { base = "e", diacritic = "ogonek", cp = "U+0119" }
+į = { base = "i", diacritic = "ogonek", cp = "U+012F" }
+ǫ = { base = "o", diacritic = "ogonek", cp = "U+01EB" }
+ų = { base = "u", diacritic = "ogonek", cp = "U+0173" }
+ã = { base = "a", diacritic = "tilde", cp = "U+00E3" }
+ẽ = { base = "e", diacritic = "tilde", cp = "U+0129" }
+ĩ = { base = "i", diacritic = "tilde", cp = "U+0129" }
+õ = { base = "o", diacritic = "tilde", cp = "U+00F5" }
+ũ = { base = "u", diacritic = "tilde", cp = "U+0169" }
+â = { base = "a", diacritic = "circumflex", cp = "U+00E2" }
+ê = { base = "e", diacritic = "circumflex", cp = "U+00EA" }
+î = { base = "i", diacritic = "circumflex", cp = "U+00EE" }
+ô = { base = "o", diacritic = "circumflex", cp = "U+00F4" }
+û = { base = "u", diacritic = "circumflex", cp = "U+00FB" }
+ă = { base = "a", diacritic = "breve", cp = "U+0103" }
+ĕ = { base = "e", diacritic = "breve", cp = "U+0115" }
+ĭ = { base = "i", diacritic = "breve", cp = "U+012D" }
+ŏ = { base = "o", diacritic = "breve", cp = "U+014F" }
+ŭ = { base = "u", diacritic = "breve", cp = "U+016D" }
+ȁ = { base = "a", diacritic = "double_grave", cp = "U+0201" }
+ȅ = { base = "e", diacritic = "double_grave", cp = "U+0205" }
+ȉ = { base = "i", diacritic = "double_grave", cp = "U+0209" }
+ȍ = { base = "o", diacritic = "double_grave", cp = "U+020D" }
+ȕ = { base = "u", diacritic = "double_grave", cp = "U+0215" }
+ạ = { base = "a", diacritic = "dot_below", cp = "U+0101" }
+ẹ = { base = "e", diacritic = "dot_below", cp = "U+0119" }
+ị = { base = "i", diacritic = "dot_below", cp = "U+0129" }
+ọ = { base = "o", diacritic = "dot_below", cp = "U+014F" }
+ụ = { base = "u", diacritic = "dot_below", cp = "U+0169" }
+ɐ = { base = "a", diacritic = "turned", cp = "U+0250", family = "IPA" }
+ɛ = { basic = "epsilon", diacritic = "open_e", cp = "U+025B", family = "IPA" }
+ɪ = { basic = "small_i", diacritic = "small_capital", cp = "U+026A", family = "IPA" }
+ɔ = { basic = "open_o", diacritic = "open", cp = "U+0254", family = "IPA" }
+ʊ = { basic = "upsilon", diacritic = "horseshoe", cp = "U+028A", family = "IPA" }
+ə = { basic = "schwa", diacritic = "rotated_e", cp = "U+0259", family = "IPA" }
+ɜ = { basic = "reversed_epsilon", diacritic = "rotated", cp = "U+025C", family = "IPA" }
+ɨ = { basic = "barred_i", diacritic = "barred", cp = "U+0268", family = "IPA" }
+ɵ = { basic = "barred_o", diacritic = "barred", cp = "U+0275", family = "IPA" }
+ʉ = { basic = "barred_u", diacritic = "barred", cp = "U+0289", family = "IPA" }
+
+[韵母符号表.大写]  # 用于韵母
+Ȧ = { base = "A", diacritic = "dot_above", cp = "U+0226", owner = "韵母" }
+Ė = { base = "E", diacritic = "dot_above", cp = "U+0116", owner = "韵母" }
+İ = { base = "I", diacritic = "dot_above", cp = "U+0130", owner = "韵母" }
+Ȯ = { base = "O", diacritic = "dot_above", cp = "U+022E", owner = "韵母" }
+Ů = { base = "U", diacritic = "dot_above", cp = "U+016E", owner = "韵母" }
+Ä = { base = "A", diacritic = "umlaut", cp = "U+00C4", owner = "韵母" }
+Ë = { base = "E", diacritic = "umlaut", cp = "U+00CB", owner = "韵母" }
+Ï = { base = "I", diacritic = "umlaut", cp = "U+00CF", owner = "韵母" }
+Ö = { base = "O", diacritic = "umlaut", cp = "U+00D6", owner = "韵母" }
+Ü = { base = "U", diacritic = "umlaut", cp = "U+00DC", owner = "韵母" }
+Ȃ = { base = "A", diacritic = "inverted_breve", cp = "U+0202", owner = "韵母" }
+Ȇ = { base = "E", diacritic = "inverted_breve", cp = "U+0206", owner = "韵母" }
+Ȋ = { base = "I", diacritic = "inverted_breve", cp = "U+020A", owner = "韵母" }
+Ȏ = { base = "O", diacritic = "inverted_breve", cp = "U+020E", owner = "韵母" }
+Ȗ = { base = "U", diacritic = "inverted_breve", cp = "U+0216", owner = "韵母" }
+A̋ = { base = "A", diacritic = "double_acute", cp = "", owner = "韵母" }
+E̋ = { base = "E", diacritic = "double_acute", cp = "", owner = "韵母" }
+I̋ = { base = "I", diacritic = "double_acute", cp = "", owner = "韵母" }
+Ű = { base = "U", diacritic = "double_acute", cp = "U+0170", owner = "韵母" }
+Ő = { base = "O", diacritic = "double_acute", cp = "U+0150", owner = "韵母" }
+Ả = { base = "A", diacritic = "hook_above", cp = "", owner = "韵母" }
+Ẻ = { base = "E", diacritic = "hook_above", cp = "", owner = "韵母" }
+Ỉ = { base = "I", diacritic = "hook_above", cp = "U+0128", owner = "韵母" }
+Ỏ = { base = "O", diacritic = "hook_above", cp = "U+014E", owner = "韵母" }
+Ủ = { base = "U", diacritic = "hook_above", cp = "U+0168", owner = "韵母" }
+Ą = { base = "A", diacritic = "ogonek", cp = "U+0104", owner = "韵母" }
+Ę = { base = "E", diacritic = "ogonek", cp = "U+0118", owner = "韵母" }
+Į = { base = "I", diacritic = "ogonek", cp = "U+012E", owner = "韵母" }
+Ǫ = { base = "O", diacritic = "ogonek", cp = "U+01EA", owner = "韵母" }
+Ų = { base = "U", diacritic = "ogonek", cp = "U+0172", owner = "韵母" }
+Ã = { base = "A", diacritic = "tilde", cp = "U+00C3", owner = "韵母" }
+Ẽ = { base = "E", diacritic = "tilde", cp = "U+0128", owner = "韵母" }
+Ĩ = { base = "I", diacritic = "tilde", cp = "U+0128", owner = "韵母" }
+Õ = { base = "O", diacritic = "tilde", cp = "U+00D5", owner = "韵母" }
+Ũ = { base = "U", diacritic = "tilde", cp = "U+0168", owner = "韵母" }
+Â = { base = "A", diacritic = "circumflex", cp = "U+00C2", owner = "韵母" }
+Ê = { base = "E", diacritic = "circumflex", cp = "U+00CA", owner = "韵母" }
+Î = { base = "I", diacritic = "circumflex", cp = "U+00CE", owner = "韵母" }
+Ô = { base = "O", diacritic = "circumflex", cp = "U+00D4", owner = "韵母" }
+Û = { base = "U", diacritic = "circumflex", cp = "U+00DB", owner = "韵母" }
+Ă = { base = "A", diacritic = "breve", cp = "U+0102", owner = "韵母" }
+Ĕ = { base = "E", diacritic = "breve", cp = "U+0114", owner = "韵母" }
+Ĭ = { base = "I", diacritic = "breve", cp = "U+012C", owner = "韵母" }
+Ŏ = { base = "O", diacritic = "breve", cp = "U+014E", owner = "韵母" }
+Ŭ = { base = "U", diacritic = "breve", cp = "U+016C", owner = "韵母" }
+Ȁ = { base = "A", diacritic = "double_grave", cp = "U+0200", owner = "韵母" }
+Ȅ = { base = "E", diacritic = "double_grave", cp = "U+0204", owner = "韵母" }
+Ȉ = { base = "I", diacritic = "double_grave", cp = "U+0208", owner = "韵母" }
+Ȍ = { base = "O", diacritic = "double_grave", cp = "U+020C", owner = "韵母" }
+Ȕ = { base = "U", diacritic = "double_grave", cp = "U+0214", owner = "韵母" }
+Ạ = { base = "A", diacritic = "dot_below", cp = "U+0100", owner = "韵母" }
+Ẹ = { base = "E", diacritic = "dot_below", cp = "U+0118", owner = "韵母" }
+Ị = { base = "I", diacritic = "dot_below", cp = "U+012A", owner = "韵母" }
+Ọ = { base = "O", diacritic = "dot_below", cp = "U+014C", owner = "韵母" }
+Ụ = { base = "U", diacritic = "dot_below", cp = "U+016A", owner = "韵母" }
+Ɐ = { base = "A", diacritic = "turned", cp = "U+2C6F", owner = "韵母", family = "IPA" }
+Ɛ = { base = "E", diacritic = "open_e", cp = "U+0190", owner = "韵母", family = "IPA" }
+ꬹ = { base = "special", diacritic = "Hook", cp = "U+AB39", owner = "韵母", family = "IPA" }
+Ɔ = { base = "O", diacritic = "open_o", cp = "U+0186", owner = "韵母", family = "IPA" }
+Ʊ = { base = "U", diacritic = "upsilon", cp = "U+01B1", owner = "韵母", family = "IPA" }
+Ə = { base = "Schwa", diacritic = "rotated", cp = "U+018F", owner = "韵母", family = "IPA" }
+Ɜ = { base = "E", diacritic = "reversed", cp = "", owner = "韵母", family = "IPA" }
+Ɨ = { base = "I", diacritic = "barred", cp = "U+0197", owner = "韵母", family = "IPA" }
+Ɵ = { base = "O", diacritic = "barred", cp = "U+019F", owner = "韵母", family = "IPA" }
+Ʉ = { base = "U", diacritic = "barred", cp = "U+0244", owner = "韵母", family = "IPA" }
+
+# ═══════════════════════════════════════
+# 住客条目（示例）
 # ═══════════════════════════════════════
 [registry]
 id_start = 0
 entry_count = 0
 convention_count = 0
 
-# ── 声母 ns=0 ──
 [resident.0.声母]
 id = 0
 addr = 0
@@ -35,7 +174,6 @@ version = 1
 convention = 0xFF
 next_expect = 0xFF
 
-# ── 韵母 ns=1 ──
 [resident.3.韵母]
 id = 1
 addr = 3

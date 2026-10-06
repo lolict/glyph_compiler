@@ -6,7 +6,7 @@
 mod grid_notation;
 mod registry;
 use grid_notation::{Bias, decode};
-use registry::{Registry, ResidenceStatus, CollideResult};
+use registry::{Registry, ResidenceStatus, CollideResult, YunmuTable};
 
 const W: i32 = 1920;
 const H: i32 = 1080;
@@ -1120,11 +1120,17 @@ fn main() {
             .unwrap_or("/mnt/data/catpaw/home/workspace/硅碳心源-果套循因/toolchain/tier1/glyph_registry.json");
         let mut file = std::fs::File::create(out).expect("cannot create file");
         use std::io::Write;
+        // 容量从 toml 读取，不自创
+        let toml_path = "/mnt/data/catpaw/home/workspace/硅碳心源-果套循因/toolchain/tier1/glyph_compiler/registry.toml";
+        let cap = registry::Capacity::from_toml(toml_path);
+        let s_cap = cap.shengmu_cap;
+        let y_cap = cap.yunmu_cap;
+        let t_cap = cap.tone_cap;
         // 行格式：每行 {"base":N,"s":N,"y":N,"t":N,"strokes":[[type,dir,x,y],...]}
         let mut count = 0;
-        for s in 0..48 {
-            for t in 0..60 {
-                for y in 0..66 {
+        for s in 0..s_cap {
+            for t in 0..t_cap {
+                for y in 0..y_cap {
                     // 容器进制：地址 = (声母s, 声调t, 韵母y) 三元组，不用乘法
                     let strokes_s = shengmu_enc(s);
                     let (y0, y1) = yunmu_strokes(y);
@@ -1160,6 +1166,40 @@ fn main() {
             }
         }
         println!("glyph_registry 导出完成: {} 音节 → {}", count, out);
+        return;
+    }
+
+    // ── 特殊命令：lookup（韵母符号 → 地址查询）──
+    if args.len() > 2 && args[1] == "lookup" {
+        let toml_path = "/mnt/data/catpaw/home/workspace/硅碳心源-果套循因/toolchain/tier1/glyph_compiler/registry.toml";
+        let table = registry::YunmuTable::from_toml(toml_path);
+        let symbol = &args[2];
+        let idx = table.symbol_to_index(symbol);
+        if idx == 0xFFFFFFFF {
+            println!("符号 \"{}\" 不在韵母符号表中", symbol);
+            println!("  符号总数: {} (toml 加载)", table.len());
+        } else {
+            println!("符号: {}", symbol);
+            println!("  地址(index): {}", idx);
+            println!("  归属: {}", table.owner(symbol));
+            println("  符号总数: {}", table.len());
+        }
+        return;
+    }
+
+    // ── 特殊命令：table-info（符号表统计）──
+    if args.len() > 1 && args[1] == "table-info" {
+        let toml_path = "/mnt/data/catpaw/home/workspace/硅碳心源-果套循因/toolchain/tier1/glyph_compiler/registry.toml";
+        let table = registry::YunmuTable::from_toml(toml_path);
+        println!("韵母符号表统计");
+        println!("  符号总数: {}", table.len());
+        // 列出前10个符号示例
+        let show = 10.min(table.len() as usize);
+        println!("  前{}个符号:", show);
+        for i in 0..show {
+            let sym = table.index_to_symbol(i as u32);
+            println!("    [{}] {} ({})", i, sym, table.owner(sym));
+        }
         return;
     }
 
@@ -1330,13 +1370,16 @@ fn main() {
         println!("放大: s={} y={} t={} mx={} my={} → {} 像素({:.1}%)",
                  s, yy, t, mx, my, out, non_bg as f64 / (big_w * big_h) as f64 * 100.0);
     } else if args.len() > 1 && args[1] == "tone" {
-        // tone s y：固定声母+韵母，画 60 个声调变化（6×10 网格）
+        // tone s y：固定声母+韵母，画全部声调变化（N×10 网格，N 从 toml 读）
         let s: u32 = args.get(2).and_then(|x| x.parse().ok()).unwrap_or(0);
         let yy: u32 = args.get(3).and_then(|x| x.parse().ok()).unwrap_or(0);
 
         let cell = 96i32;
         let cols = 10i32;
-        let rows = 6i32;
+        // 行数从 toml 容量声明读取：行 = 声调进制 / 10
+        let toml_path_tone = "/mnt/data/catpaw/home/workspace/硅碳心源-果套循因/toolchain/tier1/glyph_compiler/registry.toml";
+        let cap_tone = registry::Capacity::from_toml(toml_path_tone);
+        let rows = (cap_tone.tone_cap as i32 + 9) / 10;
         let label_left = 80i32;
         let title_top = 30i32;
         let gap = 2i32;
@@ -1359,8 +1402,9 @@ fn main() {
             draw_tone(&mut cv, 5, py, 60, (r * 10) as u32, c42_rgb(32));
         }
 
+        let t_total = cap_tone.tone_cap;
         let mut drawn = 0u32;
-        for t in 0..60u32 {
+        for t in 0..t_total {
             let col_num = (t % 10) as i32;
             let row_num = (t / 10) as i32;
             let ox = label_left + col_num * cell + gap + 1;
@@ -1374,8 +1418,8 @@ fn main() {
         let out = format!("/mnt/data/catpaw/home/workspace/硅碳心源-果套循因/toolchain/tier1/mqf_glyph_tone_s{}_y{}.bmp", s, yy);
         write_bmp_canvas(&cv, &out);
         let non_bg = cv.d.iter().filter(|&&c| c != BG).count();
-        println!("声调视图 s={} y={} t:0-59 画布:{}x{} 像素:{}({:.1}%) → {}",
-                 s, yy, canvas_w, canvas_h, non_bg, non_bg as f64 / (canvas_w * canvas_h) as f64 * 100.0, out);
+        println!("声调视图 s={} y={} t:0-{} 画布:{}x{} 像素:{}({:.1}%) → {}",
+                 s, yy, t_total - 1, canvas_w, canvas_h, non_bg, non_bg as f64 / (canvas_w * canvas_h) as f64 * 100.0, out);
     } else if args.len() > 2 && args[1] == "pipe" {
         // pipeline：pipe s y t [S:±1 Y:-2 T: ...]一键生成标准 4 张 + 可选偏置对比
         let s: u32 = args.get(2).and_then(|x| x.parse().ok()).unwrap_or(0);
@@ -1483,9 +1527,14 @@ fn draw_pipe_one(s: u32, y: u32, t: u32, prefix: &str) {
 }
 
 fn draw_pipe_tones(s: u32, y: u32, prefix: &str) {
+    // 容量从 toml 读，不自创
+    let toml_path = "/mnt/data/catpaw/home/workspace/硅碳心源-果套循因/toolchain/tier1/glyph_compiler/registry.toml";
+    let cap = registry::Capacity::from_toml(toml_path);
+    let t_cap = cap.tone_cap;
+
     let cell = 96i32;
     let cols = 10i32;
-    let rows = 6i32;
+    let rows = (t_cap as i32 + 9) / 10;  // 7行 × 10列 = 70
     let label_left = 80i32;
     let title_top = 30i32;
     let cw = cell - 6;
@@ -1498,7 +1547,7 @@ fn draw_pipe_tones(s: u32, y: u32, prefix: &str) {
     for r in 0..rows {
         draw_tone(&mut cv, 5, title_top + r * cell + cell/2 - 8, 60, (r*10) as u32, c42_rgb(32));
     }
-    for t in 0..60u32 {
+    for t in 0..t_cap {
         let ox = label_left + (t as i32 % 10) * cell + 3;
         let oy = title_top + (t as i32 / 10) * cell + 3;
         draw_container(&mut cv, ox, oy, cw, cw, s, y, t,
@@ -1507,7 +1556,7 @@ fn draw_pipe_tones(s: u32, y: u32, prefix: &str) {
     }
     let out = format!("{}_tones.bmp", prefix);
     write_bmp_canvas(&cv, &out);
-    println!("  ✓ 声调视图 {} → {}", 60, out);
+    println!("  ✓ 声调视图 {} → {}", t_cap, out);
 }
 
 fn draw_pipe_row(s: u32, prefix: &str) {
