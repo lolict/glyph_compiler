@@ -1182,7 +1182,7 @@ fn main() {
             println!("符号: {}", symbol);
             println!("  地址(index): {}", idx);
             println!("  归属: {}", table.owner(symbol));
-            println("  符号总数: {}", table.len());
+            println!("  符号总数: {}", table.len());
         }
         return;
     }

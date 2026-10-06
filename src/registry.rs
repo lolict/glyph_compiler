@@ -205,7 +205,7 @@ impl YunmuTable {
     // 从 registry.toml 的 [韵母符号表.小写] + [韵母符号表.大写] 段加载
     // 不引入 toml crate，纯字符串逐行解析
     // 节标题可能带注释：允 [韵母符号表.小写] # 注释 这种形式
-    fn from_toml(path: &str) -> YunmuTable {
+    pub fn from_toml(path: &str) -> YunmuTable {
         let mut table = YunmuTable::empty();
         let data = match std::fs::read_to_string(path) {
             Ok(s) => s,
