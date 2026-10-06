@@ -5,7 +5,7 @@
 
 mod grid_notation;
 mod registry;
-use grid_notation::{Bias, decode};
+use grid_notation::{Bias, decode, apply_xyz};
 use registry::{Registry, ResidenceStatus, CollideResult, YunmuTable};
 
 const W: i32 = 1920;
@@ -1246,6 +1246,56 @@ fn main() {
         let drawn = cv.d.iter().filter(|&&c| c != 16777215).count();
         println!("韵母: 符号={} index={} 归属={} s={} t={}", symbol, y_idx, table.owner(symbol), s, t);
         println!("  → {}  笔画像素:{} ({:.1}%)", out_png, drawn, drawn as f64 / (big_w * big_h) as f64 * 100.0);
+        return;
+    }
+
+    // ── glyph 子命令：偏置驱动的田字格（真正"造字"）──
+    // 用法: glyph <s> <y> <t> <bias_s> <bias_y> <bias_t>
+    // 例: cargo run -- glyph 5 10 20 "+1" "±2" "-3"
+    // bias_s = 声母偏置记号, bias_y = 韵母偏置记号, bias_t = 声调偏置记号
+    // 每个偏置用 grid_notation 的记号法：+1/-1 = 微移，±2 = 跨声调，±3 = 跨容器，±4 = 对角
+    // 例: ±2.-3 → 先跨声调再跨容器
+    if args.len() > 6 && args[1] == "glyph" {
+        let s: u32 = args.get(2).and_then(|x| x.parse().ok()).unwrap_or(0);
+        let yy: u32 = args.get(3).and_then(|x| x.parse().ok()).unwrap_or(0);
+        let t: u32 = args.get(4).and_then(|x| x.parse().ok()).unwrap_or(0);
+        let bias_s_str = &args[5];
+        let bias_y_str = &args[6];
+        let bias_t_str = args.get(7).unwrap_or(&bias_y_str); // 缺省则用韵母偏置
+
+        let biases_s = decode(bias_s_str);
+        let biases_y = decode(bias_y_str);
+        let biases_t = decode(bias_t_str);
+
+        let big_w = 800i32;
+        let big_h = 800i32;
+        let mut cv = Cv { d: vec![16777215; (big_w * big_h) as usize], w: big_w, h: big_h };
+        let m = 40i32;
+        let cw = big_w - 2*m;
+        let ch = big_h - 2*m;
+
+        let (ds, dt, dy) = apply_xyz(&biases_y);
+
+        draw_container_biased(
+            &mut cv, m, m, cw, ch,
+            s, yy, t,
+            &biases_s, &biases_y, &biases_t,
+            c42_rgb(32),
+        );
+
+        let out_bmp = format!("/mnt/data/catpaw/home/workspace/硅碳心源-果套循因/toolchain/tier1/mqf_glyph_s{}_y{}_t{}_{}{}{}.bmp",
+                              s, yy, t, bias_s_str, bias_y_str, bias_t_str);
+        let out_png = format!("/mnt/data/catpaw/home/workspace/硅碳心源-果套循因/toolchain/tier1/mqf_glyph_s{}_y{}_t{}_{}{}{}.png",
+                              s, yy, t, bias_s_str, bias_y_str, bias_t_str);
+        write_bmp_canvas(&cv, &out_bmp);
+        write_png_canvas(&cv, &out_png);
+
+        let drawn = cv.d.iter().filter(|&&c| c != 16777215).count();
+        println!("glyph: s={} y={} t={}", s, yy, t);
+        println!("  声母偏置: {} → {:?}", bias_s_str, biases_s);
+        println!("  韵母偏置: {} → {:?}  步进(ds,dt,dy)=({},{},{})", bias_y_str, biases_y, ds, dt, dy);
+        println!("  声调偏置: {} → {:?}", bias_t_str, biases_t);
+        println!("  → {}  像素:{}({:.1}%)", out_png, drawn, drawn as f64 / (big_w * big_h) as f64 * 100.0);
         return;
     }
 
