@@ -36,8 +36,9 @@ i̇ = { base = "i", diacritic = "dot_above", cp = "U+0130" }
 ȋ = { base = "i", diacritic = "inverted_breve", cp = "U+020B" }
 ȏ = { base = "o", diacritic = "inverted_breve", cp = "U+020F" }
 ȗ = { base = "u", diacritic = "inverted_breve", cp = "U+0217" }
-a̋ = { base = "a", diacritic = "double_acute", cp = "U+011F" }
+a̋ = { base = "a", diacritic = "double_acute", cp = "" }
 e̋ = { base = "e", diacritic = "double_acute", cp = "" }
+i̋ = { base = "i", diacritic = "double_acute", cp = "" }
 ő = { base = "o", diacritic = "double_acute", cp = "U+0151" }
 ű = { base = "u", diacritic = "double_acute", cp = "U+0171" }
 ả = { base = "a", diacritic = "hook_above", cp = "U+0103" }
@@ -105,8 +106,8 @@ e̋ = { base = "e", diacritic = "double_acute", cp = "" }
 A̋ = { base = "A", diacritic = "double_acute", cp = "", owner = "韵母" }
 E̋ = { base = "E", diacritic = "double_acute", cp = "", owner = "韵母" }
 I̋ = { base = "I", diacritic = "double_acute", cp = "", owner = "韵母" }
-Ű = { base = "U", diacritic = "double_acute", cp = "U+0170", owner = "韵母" }
 Ő = { base = "O", diacritic = "double_acute", cp = "U+0150", owner = "韵母" }
+Ű = { base = "U", diacritic = "double_acute", cp = "U+0170", owner = "韵母" }
 Ả = { base = "A", diacritic = "hook_above", cp = "", owner = "韵母" }
 Ẻ = { base = "E", diacritic = "hook_above", cp = "", owner = "韵母" }
 Ỉ = { base = "I", diacritic = "hook_above", cp = "U+0128", owner = "韵母" }

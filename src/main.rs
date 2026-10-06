@@ -1203,6 +1203,52 @@ fn main() {
         return;
     }
 
+    // ── yunmu 子命令：输入Unicode符号 → 查index → 画田字格 ──
+    // 用法: cargo run -- yunmu <Unicode符号> [声母序号] [声调序号]
+    // 例: cargo run -- yunmu Ȧ 5 10
+    if args.len() > 2 && args[1] == "yunmu" {
+        let toml_path = "/mnt/data/catpaw/home/workspace/硅碳心源-果套循因/toolchain/tier1/glyph_compiler/registry.toml";
+        let table = YunmuTable::from_toml(toml_path);
+        let symbol = &args[2];
+        let y_idx = table.symbol_to_index(symbol);
+
+        if y_idx == 0xFFFFFFFF {
+            println!("符号 \"{}\" 不在韵母符号表中", symbol);
+            println!("  符号总数: {}", table.len());
+            println!("  尝试: cargo run -- lookup {}  查看是否收录", symbol);
+            return;
+        }
+
+        let s: u32 = args.get(3).and_then(|x| x.parse().ok()).unwrap_or(0);
+        let t: u32 = args.get(4).and_then(|x| x.parse().ok()).unwrap_or(0);
+
+        let big_w = 800i32;
+        let big_h = 800i32;
+        let mut cv = Cv { d: vec![16777215; (big_w * big_h) as usize], w: big_w, h: big_h };
+
+        let mx = ((s * 31 + y_idx * 17 + t * 7) % 10) as u32;
+        let my = ((s * 13 + y_idx * 7 + t * 11) % 10) as u32;
+
+        // 符号用韵母列颜色（大写=韵母列）
+        let fg = if table.owner(symbol) == "韵母" {
+            c42_rgb(14)  // 青系
+        } else {
+            c42_rgb(7)   // 橙系（声调用小写）
+        };
+        let m = 40i32;
+        draw_container_mono(&mut cv, m, m, big_w - 2*m, big_h - 2*m, s, y_idx, t, mx, my, fg);
+
+        let out_bmp = format!("/mnt/data/catpaw/home/workspace/硅碳心源-果套循因/toolchain/tier1/mqf_glyph_yunmu_{}_s{}.bmp", symbol, s);
+        write_bmp_canvas(&cv, &out_bmp);
+        let out_png = format!("/mnt/data/catpaw/home/workspace/硅碳心源-果套循因/toolchain/tier1/mqf_glyph_yunmu_{}_s{}.png", symbol, s);
+        write_png_canvas(&cv, &out_png);
+
+        let drawn = cv.d.iter().filter(|&&c| c != 16777215).count();
+        println!("韵母: 符号={} index={} 归属={} s={} t={}", symbol, y_idx, table.owner(symbol), s, t);
+        println!("  → {}  笔画像素:{} ({:.1}%)", out_png, drawn, drawn as f64 / (big_w * big_h) as f64 * 100.0);
+        return;
+    }
+
     if args.len() > 1 && args[1] == "one" {
         let s: u32 = args.get(2).and_then(|x| x.parse().ok()).unwrap_or(0);
         let yy: u32 = args.get(3).and_then(|x| x.parse().ok()).unwrap_or(0);

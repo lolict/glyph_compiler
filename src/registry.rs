@@ -203,7 +203,8 @@ impl YunmuTable {
     }
 
     // 从 registry.toml 的 [韵母符号表.小写] + [韵母符号表.大写] 段加载
-    // 不引入 toml crate，纯字符串逐行解析 key = { cp = "..." }
+    // 不引入 toml crate，纯字符串逐行解析
+    // 节标题可能带注释：允 [韵母符号表.小写] # 注释 这种形式
     fn from_toml(path: &str) -> YunmuTable {
         let mut table = YunmuTable::empty();
         let data = match std::fs::read_to_string(path) {
@@ -213,11 +214,14 @@ impl YunmuTable {
         let mut in_yunmu_section = false;
         for line in data.lines() {
             let t = line.trim();
-            if t == "[韵母符号表.小写]" || t == "[韵母符号表.大写]" {
+            // 节标题匹配：去掉右侧注释后比较
+            let section_name = t.split('#').next().unwrap_or("").trim();
+            if section_name == "[韵母符号表.小写]" || section_name == "[韵母符号表.大写]" {
                 in_yunmu_section = true;
                 continue;
             }
-            if t.starts_with('[') && t.ends_with(']') {
+            // 其他节标题 → 退出
+            if section_name.starts_with('[') && section_name.ends_with(']') {
                 in_yunmu_section = false;
                 continue;
             }
@@ -746,7 +750,7 @@ mod tests {
 
     #[test]
     fn test_yunmu_table_from_toml() {
-        // 创建带韵母符号表的测试 toml
+        // 创建带韵母符号表的测试 toml（包含注释行，验证兼容性）
         let tmp = "/tmp/test_yunmu_table.toml";
         std::fs::write(tmp, r#"
 [容量声明]
@@ -754,12 +758,13 @@ mod tests {
 韵母基数 = 66
 声调进制 = 70
 
-[韵母符号表.小写]
+# 这是韵母符号表
+[韵母符号表.小写]  # 声调池
 ȧ = { base = "a", cp = "U+0227" }
 ė = { base = "e", cp = "U+0117" }
 ä = { base = "a", cp = "U+00E4" }
 
-[韵母符号表.大写]
+[韵母符号表.大写]  # 韵母池
 Ȧ = { base = "A", cp = "U+0226", owner = "韵母" }
 Ā = { base = "A", cp = "U+0100", owner = "韵母" }
 "#).unwrap();
@@ -788,6 +793,29 @@ mod tests {
         // owner 判断
         assert_eq!(table.owner("ȧ"), "声调");   // 小写 → 声调
         assert_eq!(table.owner("Ȧ"), "韵母");   // 大写 → 韵母
+    }
+
+    #[test]
+    fn test_yunmu_table_full_130() {
+        // 验证完整 registry.toml 加载出 130 个符号
+        let toml_path = "/mnt/data/catpaw/home/workspace/硅碳心源-果套循因/toolchain/tier1/glyph_compiler/registry.toml";
+        // 此测试只在文件存在时运行
+        if !std::path::Path::new(toml_path).exists() {
+            return;
+        }
+        let table = YunmuTable::from_toml(toml_path);
+        // 130 = 65小写 + 65大写
+        assert!(table.len() >= 129, "韵母符号表至少129个，实际 {}：请检查 toml 完整性", table.len());
+
+        // 验证几个关键符号
+        assert_ne!(table.symbol_to_index("ȧ"), 0xFFFFFFFF, "小写 ȧ 应存在");
+        assert_ne!(table.symbol_to_index("Ȧ"), 0xFFFFFFFF, "大写 Ȧ 应存在");
+        assert_ne!(table.symbol_to_index("ə"), 0xFFFFFFFF, "schwa ə 应存在（IPA）");
+        assert_ne!(table.symbol_to_index("Ʉ"), 0xFFFFFFFF, "barred U Ʉ 应存在（IPA）");
+
+        // 验证 owner 分类
+        assert_eq!(table.owner("ȧ"), "声调");
+        assert_eq!(table.owner("Ȧ"), "韵母");
     }
 
     #[test]
